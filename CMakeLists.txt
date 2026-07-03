@@ -43,6 +43,7 @@ target_link_libraries(infetch PRIVATE
     crypt32     # CertOpenSystemStore etc. for cpp-httplib SSL
     wininet     # FTP support
     bcrypt      # SHA256 via CNG
+    dnsapi      # DNS TXT record queries
 )
 
 # Platform defines

@@ -4,6 +4,7 @@
 
 #include <windows.h>
 #include <wininet.h>
+#include <windns.h>
 #include <stdexcept>
 #include <iostream>
 #include <sstream>
@@ -196,6 +197,62 @@ static bool download_ftp(const LinkInfo& link, const BlockInfo& block,
     return out_data.size() >= static_cast<size_t>(total_needed);
 }
 
+// Download via DNS TXT records using Windows DNS API
+static bool download_dns(const LinkInfo& link, const BlockInfo& block,
+                          std::vector<uint8_t>& out_data) {
+    std::string domain = build_url(link);
+
+    PDNS_RECORD pDnsRecord = nullptr;
+    DNS_STATUS status = DnsQuery_A(
+        domain.c_str(),
+        DNS_TYPE_TEXT,
+        DNS_QUERY_STANDARD,
+        nullptr,
+        &pDnsRecord,
+        nullptr
+    );
+
+    if (status != 0 || !pDnsRecord) {
+        std::cerr << "DNS query failed for " << domain
+                  << ": " << status << std::endl;
+        return false;
+    }
+
+    // Concatenate all TXT record strings
+    std::string txt_data;
+    for (PDNS_RECORD pRec = pDnsRecord; pRec != nullptr; pRec = pRec->pNext) {
+        if (pRec->wType == DNS_TYPE_TEXT) {
+            // DNS TXT records store data as length-prefixed strings
+            for (DWORD i = 0; i < pRec->Data.TXT.dwStringCount; i++) {
+                txt_data += pRec->Data.TXT.pStringArray[i];
+            }
+        }
+    }
+
+    DnsRecordListFree(pDnsRecord, DnsFreeRecordList);
+
+    if (txt_data.empty()) {
+        std::cerr << "No TXT records found for " << domain << std::endl;
+        return false;
+    }
+
+    // Extract the requested range from the concatenated data
+    int64_t total_size = static_cast<int64_t>(txt_data.size());
+    int64_t start = std::max<int64_t>(0, block.range_start);
+    int64_t end = std::min<int64_t>(total_size - 1, block.range_end);
+
+    if (start >= total_size) {
+        std::cerr << "Block range " << block.range_start << "-" << block.range_end
+                  << " exceeds DNS data size " << total_size << std::endl;
+        return false;
+    }
+
+    out_data.assign(txt_data.begin() + static_cast<ptrdiff_t>(start),
+                    txt_data.begin() + static_cast<ptrdiff_t>(end) + 1);
+
+    return true;
+}
+
 std::vector<uint8_t> download_block(const BlockInfo& block) {
     for (const auto& link : block.links) {
         std::vector<uint8_t> data;
@@ -205,6 +262,8 @@ std::vector<uint8_t> download_block(const BlockInfo& block) {
             ok = download_http(link, block, data);
         } else if (link.linktype == "ftp") {
             ok = download_ftp(link, block, data);
+        } else if (link.linktype == "dns") {
+            ok = download_dns(link, block, data);
         } else {
             std::cerr << "Unsupported link type: " << link.linktype << std::endl;
             continue;
