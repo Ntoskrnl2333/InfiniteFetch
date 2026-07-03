@@ -1,0 +1,4 @@
+*.o
+*.obj
+infetch.exe
+infetch
