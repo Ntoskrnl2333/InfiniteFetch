@@ -28,9 +28,43 @@ static std::string find_option(const std::vector<Option>& options,
     return {};
 }
 
-// Handle status-code-based option values
+// Handle status-code-based option values.
+// Returns: empty string = proceed normally, "ERR" = fatal error,
+//           anything else = treat as zero-fill pattern
 static std::string find_status_code_option(const std::vector<Option>& options, int status_code) {
     return find_option(options, "status_code", std::to_string(status_code));
+}
+
+// Parse status_code option value and handle it.
+// Returns true if the caller should continue; false if the link should be abandoned.
+// If out_data_filled is true, out_data has been filled with the appropriate content.
+static bool handle_status_code_option(const std::string& option_value,
+                                       const BlockInfo& block,
+                                       std::vector<uint8_t>& out_data,
+                                       bool& out_data_filled) {
+    out_data_filled = false;
+
+    if (option_value.empty()) return true;
+
+    std::string upper = option_value;
+    for (auto& c : upper) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+
+    if (upper.find("ERR") != std::string::npos) {
+        return false;
+    }
+
+    // Handle "return 0000h" or "return XXXXh" patterns
+    // Fill with zeros at the expected block size
+    if (upper.find("RETURN") != std::string::npos) {
+        int64_t block_size = block.range_end - block.range_start + 1;
+        if (block_size > 0) {
+            out_data.assign(static_cast<size_t>(block_size), 0);
+            out_data_filled = true;
+            return true;
+        }
+    }
+
+    return true;
 }
 
 // Download via HTTP/HTTPS using cpp-httplib
@@ -85,13 +119,16 @@ static bool download_http(const LinkInfo& link, const BlockInfo& block,
 
     int status = res->status;
 
-    // Check for status_code options that signal failure/override
+    // Check for status_code options that override normal behavior
     std::string status_opt = find_status_code_option(link.options, status);
-    if (!status_opt.empty()) {
-        if (status_opt.find("ERR") != std::string::npos) {
-            std::cerr << "Status code " << status << " treated as error by seed options" << std::endl;
-            return false;
-        }
+    bool data_filled = false;
+    if (!handle_status_code_option(status_opt, block, out_data, data_filled)) {
+        std::cerr << "Status code " << status << " treated as error by seed options" << std::endl;
+        return false;
+    }
+    if (data_filled) {
+        std::cout << "Status code " << status << " handled: returning zero-filled block" << std::endl;
+        return true;
     }
 
     if (status != 200 && status != 206) {
