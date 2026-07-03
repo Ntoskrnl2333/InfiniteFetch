@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<infetch hash="---">
+<!--infetch hash="{SHA256 of the whole seed file}"-->
+
+<title>Example Seed</title>
+<charset>utf-8</charset>
+<!--charset={utf-8,ascii,utf-16-le,utf-16-be}-->
+
+<files>
+	<file name="file.001">
+		<hash>SHA256 of file.001</hash>
+		<size>Bytes</size>
+		<create_time>RFC3339</create_time>
+		<edit_time>RFC3339 Last edit time</edit_time>
+		<blocks>
+			<block id="0" range="0-1023" hash="SHA256 of block 0">
+				<uploader>Uploader Name(optional)</uploader>
+				<linktype>http</linktype>
+				<link>http://example.com</link>
+				<options>
+					<option class="header" name="User-Agent">thief</option>
+					<option class="header" name="Range">0-1023</option>
+					<option class="status_code" name="500">return ERR;</option>
+					<option class="status_code" name="204">return 0000h;</option>
+				</options>
+			</block>
+		</blocks>
+	</file>
+</files>
+
+</infetch>
