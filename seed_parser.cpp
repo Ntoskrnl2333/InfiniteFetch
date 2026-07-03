@@ -87,36 +87,25 @@ SeedInfo parse_seed(const std::string& filepath) {
 
             block.uploader = blockNode.child_value("uploader");
 
-            // Collect all links for this block
-            for (auto linkTypeNode : blockNode.children()) {
-                std::string nodeName = linkTypeNode.name();
-                if (nodeName == "uploader" || nodeName == "options") {
-                    continue;
-                }
+            // Build the LinkInfo for this block
+            LinkInfo link;
+            link.linktype = blockNode.child_value("linktype");
+            link.link = blockNode.child_value("link");
+            link.uploader = block.uploader;
 
-                LinkInfo link;
-                if (nodeName == "linktype") {
-                    link.linktype = linkTypeNode.child_value();
-                } else {
-                    link.linktype = nodeName; // direct element like <http>
+            // Parse options
+            auto optionsNode = blockNode.child("options");
+            if (optionsNode) {
+                for (auto optNode = optionsNode.child("option"); optNode; optNode = optNode.next_sibling("option")) {
+                    Option opt;
+                    opt.option_class = optNode.attribute("class").as_string();
+                    opt.name = optNode.attribute("name").as_string();
+                    opt.value = optNode.child_value();
+                    link.options.push_back(opt);
                 }
-                link.link = blockNode.child_value("link");
-                link.uploader = block.uploader;
-
-                // Parse options
-                auto optionsNode = blockNode.child("options");
-                if (optionsNode) {
-                    for (auto optNode = optionsNode.child("option"); optNode; optNode = optNode.next_sibling("option")) {
-                        Option opt;
-                        opt.option_class = optNode.attribute("class").as_string();
-                        opt.name = optNode.attribute("name").as_string();
-                        opt.value = optNode.child_value();
-                        link.options.push_back(opt);
-                    }
-                }
-
-                block.links.push_back(link);
             }
+
+            block.links.push_back(link);
 
             file.blocks.push_back(block);
         }
