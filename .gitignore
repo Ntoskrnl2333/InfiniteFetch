@@ -2,6 +2,7 @@
 *.obj
 infetch.exe
 infetch
+build/
 
 .qwen/
 .vscode/
