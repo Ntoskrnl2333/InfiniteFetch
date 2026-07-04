@@ -44,6 +44,7 @@ target_link_libraries(infetch PRIVATE
     wininet     # FTP support
     bcrypt      # SHA256 via CNG
     dnsapi      # DNS TXT record queries
+    odbc32      # SQL/ODBC database queries
 )
 
 # Platform defines

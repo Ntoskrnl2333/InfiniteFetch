@@ -5,6 +5,8 @@
 #include <windows.h>
 #include <wininet.h>
 #include <windns.h>
+#include <sql.h>
+#include <sqlext.h>
 #include <stdexcept>
 #include <iostream>
 #include <sstream>
@@ -253,6 +255,115 @@ static bool download_dns(const LinkInfo& link, const BlockInfo& block,
     return true;
 }
 
+// Download via SQL/ODBC query
+static bool download_sql(const LinkInfo& link, const BlockInfo& block,
+                          std::vector<uint8_t>& out_data) {
+    std::string query = build_url(link);
+
+    // Find connection string from options
+    std::string conn_str = find_option(link.options, "sql", "connection");
+    if (conn_str.empty()) {
+        std::cerr << "No SQL connection string found in options" << std::endl;
+        return false;
+    }
+
+    SQLHENV hEnv = nullptr;
+    SQLHDBC hDbc = nullptr;
+    SQLHSTMT hStmt = nullptr;
+    bool success = false;
+
+    if (SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, &hEnv) != SQL_SUCCESS) {
+        std::cerr << "SQLAllocHandle(ENV) failed" << std::endl;
+        return false;
+    }
+
+    SQLSetEnvAttr(hEnv, SQL_ATTR_ODBC_VERSION, (SQLPOINTER)SQL_OV_ODBC3, 0);
+
+    if (SQLAllocHandle(SQL_HANDLE_DBC, hEnv, &hDbc) != SQL_SUCCESS) {
+        std::cerr << "SQLAllocHandle(DBC) failed" << std::endl;
+        SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+        return false;
+    }
+
+    // Connect to database
+    SQLCHAR outConnStr[1024];
+    SQLSMALLINT outConnStrLen = 0;
+    SQLRETURN ret = SQLDriverConnectA(hDbc, nullptr,
+        (SQLCHAR*)conn_str.c_str(), (SQLSMALLINT)conn_str.size(),
+        outConnStr, sizeof(outConnStr), &outConnStrLen,
+        SQL_DRIVER_NOPROMPT);
+
+    if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
+        SQLCHAR sqlState[6], errMsg[256];
+        SQLINTEGER nativeErr;
+        SQLSMALLINT msgLen;
+        SQLGetDiagRecA(SQL_HANDLE_DBC, hDbc, 1, sqlState, &nativeErr, errMsg, sizeof(errMsg), &msgLen);
+        std::cerr << "SQL connection failed: " << errMsg << std::endl;
+        SQLFreeHandle(SQL_HANDLE_DBC, hDbc);
+        SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+        return false;
+    }
+
+    // Execute query
+    if (SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt) != SQL_SUCCESS) {
+        std::cerr << "SQLAllocHandle(STMT) failed" << std::endl;
+        SQLDisconnect(hDbc);
+        SQLFreeHandle(SQL_HANDLE_DBC, hDbc);
+        SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+        return false;
+    }
+
+    ret = SQLExecDirectA(hStmt, (SQLCHAR*)query.c_str(), SQL_NTS);
+    if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
+        SQLCHAR sqlState[6], errMsg[256];
+        SQLINTEGER nativeErr;
+        SQLSMALLINT msgLen;
+        SQLGetDiagRecA(SQL_HANDLE_STMT, hStmt, 1, sqlState, &nativeErr, errMsg, sizeof(errMsg), &msgLen);
+        std::cerr << "SQL query failed: " << errMsg << std::endl;
+        SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
+        SQLDisconnect(hDbc);
+        SQLFreeHandle(SQL_HANDLE_DBC, hDbc);
+        SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+        return false;
+    }
+
+    // Fetch first row, first column as binary data
+    ret = SQLFetch(hStmt);
+    if (ret == SQL_SUCCESS || ret == SQL_SUCCESS_WITH_INFO) {
+        SQLLEN indicator = 0;
+        std::vector<uint8_t> buffer(65536);
+
+        ret = SQLGetData(hStmt, 1, SQL_C_BINARY, buffer.data(), (SQLLEN)buffer.size(), &indicator);
+
+        if (ret == SQL_SUCCESS || ret == SQL_SUCCESS_WITH_INFO) {
+            if (indicator == SQL_NULL_DATA) {
+                std::cerr << "SQL query returned NULL data" << std::endl;
+            } else if (indicator > 0) {
+                size_t data_len = static_cast<size_t>(indicator);
+                if (data_len > buffer.size()) {
+                    // Data too large for buffer, re-read with larger buffer
+                    buffer.resize(data_len);
+                    ret = SQLGetData(hStmt, 1, SQL_C_BINARY, buffer.data(), (SQLLEN)buffer.size(), &indicator);
+                }
+                buffer.resize(data_len);
+                out_data = std::move(buffer);
+                success = true;
+            }
+        } else if (ret == SQL_NO_DATA) {
+            std::cerr << "SQL query returned no data" << std::endl;
+        }
+    } else {
+        std::cerr << "SQL fetch returned no rows" << std::endl;
+    }
+
+    SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
+    SQLDisconnect(hDbc);
+    SQLFreeHandle(SQL_HANDLE_DBC, hDbc);
+    SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+
+    return success;
+}
+
 std::vector<uint8_t> download_block(const BlockInfo& block) {
     for (const auto& link : block.links) {
         std::vector<uint8_t> data;
@@ -264,6 +375,8 @@ std::vector<uint8_t> download_block(const BlockInfo& block) {
             ok = download_ftp(link, block, data);
         } else if (link.linktype == "dns") {
             ok = download_dns(link, block, data);
+        } else if (link.linktype == "sql") {
+            ok = download_sql(link, block, data);
         } else {
             std::cerr << "Unsupported link type: " << link.linktype << std::endl;
             continue;
