@@ -19,7 +19,7 @@
 				<link>http://example.com</link>
 				<options>
 					<option class="header" name="User-Agent">thief</option>
-					<option class="header" name="Range">0-1023</option>
+					<option class="header" name="Range">bytes=0-1023</option>
 					<option class="status_code" name="500">return ERR;</option>
 					<option class="status_code" name="204">return 0000h;</option>
 				</options>
