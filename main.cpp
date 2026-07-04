@@ -7,12 +7,17 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <cstring>
+
+static bool g_verbose = false;
 
 static void print_usage(const char* prog) {
     std::cout << "InfiniteFetch v" << VERSION << " (" << PLATFORM << ")\n"
-              << "Usage: " << prog << " <seed_file> [output_dir]\n"
-              << "  seed_file   Path to the XML seed file\n"
-              << "  output_dir  Directory to save downloaded files (default: .)\n";
+              << "Usage: " << prog << " [options] <seed_file> [output_dir]\n"
+              << "Options:\n"
+              << "  -v, --verbose   Enable verbose output\n"
+              << "  seed_file       Path to the XML seed file\n"
+              << "  output_dir      Directory to save downloaded files (default: .)\n";
 }
 
 int main(int argc, char** argv) {
@@ -21,10 +26,27 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    std::string seed_path = argv[1];
-    std::string output_dir = (argc >= 3) ? argv[2] : ".";
+    std::string seed_path;
+    std::string output_dir = ".";
+
+    for (int i = 1; i < argc; i++) {
+        std::string arg = argv[i];
+        if (arg == "-v" || arg == "--verbose") {
+            g_verbose = true;
+        } else if (seed_path.empty()) {
+            seed_path = arg;
+        } else {
+            output_dir = arg;
+        }
+    }
+
+    if (seed_path.empty()) {
+        print_usage(argv[0]);
+        return 1;
+    }
 
     try {
+        std::cout << "InfiniteFetch v" << VERSION << " (" << PLATFORM << ")" << std::endl;
         std::cout << "Parsing seed file: " << seed_path << std::endl;
         SeedInfo seed = parse_seed(seed_path);
         std::cout << "Seed: " << seed.title << " (charset: " << seed.charset << ")" << std::endl;
@@ -48,6 +70,12 @@ int main(int argc, char** argv) {
             for (const auto& block : file.blocks) {
                 std::cout << "  Downloading block " << block.id
                           << " (bytes " << block.range_start << "-" << block.range_end << ")... ";
+
+                if (g_verbose) {
+                    std::cout << "\n    Uploader: " << block.uploader
+                              << "\n    Hash: " << block.hash
+                              << "\n    Sources: " << block.links.size() << std::endl;
+                }
 
                 auto data = download_block(block);
                 std::cout << data.size() << " bytes downloaded" << std::endl;

@@ -31,6 +31,20 @@ static std::string find_option(const std::vector<Option>& options,
     return {};
 }
 
+// Find option by class and name, returning int value
+static int find_int_option(const std::vector<Option>& options,
+                            const std::string& option_class,
+                            const std::string& name,
+                            int default_value) {
+    std::string val = find_option(options, option_class, name);
+    if (val.empty()) return default_value;
+    try {
+        return std::stoi(val);
+    } catch (...) {
+        return default_value;
+    }
+}
+
 // Handle status-code-based option values.
 // Returns: empty string = proceed normally, "ERR" = fatal error,
 //           anything else = treat as zero-fill pattern
@@ -99,6 +113,15 @@ static bool download_http(const LinkInfo& link, const BlockInfo& block,
 
     httplib::Client cli(scheme + "://" + host);
 
+    // Configure timeout from options (default 30 seconds)
+    int timeout_secs = find_int_option(link.options, "timeout", "seconds", 30);
+    cli.set_connection_timeout(timeout_secs, 0);
+    cli.set_read_timeout(timeout_secs, 0);
+    cli.set_write_timeout(timeout_secs, 0);
+
+    // Get retry count from options (default 0 = no retry)
+    int retry_count = find_int_option(link.options, "retry", "count", 0);
+
     httplib::Headers headers;
 
     // Build Range header from block range
@@ -113,35 +136,47 @@ static bool download_http(const LinkInfo& link, const BlockInfo& block,
         }
     }
 
-    auto res = cli.Get(path.c_str(), headers);
+    // Retry loop
+    for (int attempt = 0; attempt <= retry_count; attempt++) {
+        if (attempt > 0) {
+            std::cerr << "Retry attempt " << attempt << "/" << retry_count << " for "
+                      << url << std::endl;
+        }
 
-    if (!res) {
-        std::cerr << "HTTP request failed: " << httplib::to_string(res.error()) << std::endl;
-        return false;
-    }
+        auto res = cli.Get(path.c_str(), headers);
 
-    int status = res->status;
+        if (!res) {
+            std::cerr << "HTTP request failed: " << httplib::to_string(res.error()) << std::endl;
+            if (attempt < retry_count) continue;
+            return false;
+        }
 
-    // Check for status_code options that override normal behavior
-    std::string status_opt = find_status_code_option(link.options, status);
-    bool data_filled = false;
-    if (!handle_status_code_option(status_opt, block, out_data, data_filled)) {
-        std::cerr << "Status code " << status << " treated as error by seed options" << std::endl;
-        return false;
-    }
-    if (data_filled) {
-        std::cout << "Status code " << status << " handled: returning zero-filled block" << std::endl;
+        int status = res->status;
+
+        // Check for status_code options that override normal behavior
+        std::string status_opt = find_status_code_option(link.options, status);
+        bool data_filled = false;
+        if (!handle_status_code_option(status_opt, block, out_data, data_filled)) {
+            std::cerr << "Status code " << status << " treated as error by seed options" << std::endl;
+            return false;
+        }
+        if (data_filled) {
+            std::cout << "Status code " << status << " handled: returning zero-filled block" << std::endl;
+            return true;
+        }
+
+        if (status != 200 && status != 206) {
+            std::cerr << "HTTP status: " << status << std::endl;
+            if (status >= 500 && attempt < retry_count) continue; // retry on server errors
+            return false;
+        }
+
+        const auto& body = res->body;
+        out_data.assign(body.begin(), body.end());
         return true;
     }
 
-    if (status != 200 && status != 206) {
-        std::cerr << "HTTP status: " << status << std::endl;
-        return false;
-    }
-
-    const auto& body = res->body;
-    out_data.assign(body.begin(), body.end());
-    return true;
+    return false;
 }
 
 // Download via FTP using WinINet
@@ -383,6 +418,12 @@ std::vector<uint8_t> download_block(const BlockInfo& block) {
         }
 
         if (ok) {
+            int64_t expected_size = block.range_end - block.range_start + 1;
+            if (expected_size > 0 && static_cast<int64_t>(data.size()) != expected_size) {
+                std::cout << "Block " << block.id << " size differs from range: expected "
+                          << expected_size << " bytes, got " << data.size()
+                          << " bytes (hash verification will catch corruption)" << std::endl;
+            }
             return data;
         }
 
