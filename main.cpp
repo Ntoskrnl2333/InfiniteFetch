@@ -28,6 +28,14 @@ int main(int argc, char** argv) {
         std::cout << "Parsing seed file: " << seed_path << std::endl;
         SeedInfo seed = parse_seed(seed_path);
         std::cout << "Seed: " << seed.title << " (charset: " << seed.charset << ")" << std::endl;
+
+        // Verify seed file integrity
+        if (!verify_seed_hash(seed_path, seed.hash)) {
+            std::cerr << "Warning: Seed file hash verification failed, continuing anyway..." << std::endl;
+        } else if (!seed.hash.empty()) {
+            std::cout << "Seed hash verified OK" << std::endl;
+        }
+
         std::cout << "Files to download: " << seed.files.size() << std::endl;
 
         for (const auto& file : seed.files) {

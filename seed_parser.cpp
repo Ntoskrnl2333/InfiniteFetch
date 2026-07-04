@@ -1,10 +1,15 @@
 #include "seed_parser.h"
+#include "sha256.h"
 
 #include <pugixml.hpp>
 #include <stdexcept>
 #include <sstream>
+#include <fstream>
 #include <vector>
 #include <string>
+#include <cctype>
+#include <iostream>
+#include <cstdint>
 
 static std::vector<std::string> split(const std::string& s, char delim) {
     std::vector<std::string> tokens;
@@ -114,4 +119,41 @@ SeedInfo parse_seed(const std::string& filepath) {
     }
 
     return seed;
+}
+
+bool verify_seed_hash(const std::string& filepath, const std::string& expected_hash) {
+    if (expected_hash.empty()) {
+        return true; // No hash declared, skip verification
+    }
+
+    // Read the entire seed file
+    std::ifstream file(filepath, std::ios::binary | std::ios::ate);
+    if (!file) {
+        std::cerr << "Warning: Cannot open seed file for hash verification" << std::endl;
+        return false;
+    }
+
+    size_t file_size = static_cast<size_t>(file.tellg());
+    file.seekg(0);
+    std::vector<uint8_t> data(file_size);
+    file.read(reinterpret_cast<char*>(data.data()), file_size);
+    file.close();
+
+    // Compute SHA256 of the raw file
+    std::string actual_hash = sha256_hex(data);
+
+    // Compare case-insensitively
+    std::string expected_lower = expected_hash;
+    std::string actual_lower = actual_hash;
+    for (auto& c : expected_lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    for (auto& c : actual_lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+    if (expected_lower != actual_lower) {
+        std::cerr << "Seed hash mismatch!\n"
+                  << "  Expected: " << expected_hash << "\n"
+                  << "  Got:      " << actual_hash << std::endl;
+        return false;
+    }
+
+    return true;
 }
