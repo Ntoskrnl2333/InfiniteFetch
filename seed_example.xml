@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <infetch hash="---">
-<!--infetch hash="{SHA256 of the whole seed file}"-->
+<!--infetch hash="{SHA256 of the inner text between <infetch> and </infetch> (tags exclusive)}"-->
 
 <title>Example Seed</title>
 <charset>utf-8</charset>

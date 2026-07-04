@@ -126,7 +126,7 @@ bool verify_seed_hash(const std::string& filepath, const std::string& expected_h
         return true; // No hash declared, skip verification
     }
 
-    // Read the entire seed file
+    // Read the entire seed file as text
     std::ifstream file(filepath, std::ios::binary | std::ios::ate);
     if (!file) {
         std::cerr << "Warning: Cannot open seed file for hash verification" << std::endl;
@@ -135,12 +135,36 @@ bool verify_seed_hash(const std::string& filepath, const std::string& expected_h
 
     size_t file_size = static_cast<size_t>(file.tellg());
     file.seekg(0);
-    std::vector<uint8_t> data(file_size);
-    file.read(reinterpret_cast<char*>(data.data()), file_size);
+    std::string raw_text(file_size, '\0');
+    file.read(raw_text.data(), file_size);
     file.close();
 
-    // Compute SHA256 of the raw file
-    std::string actual_hash = sha256_hex(data);
+    // Find the inner content between <infetch ...> and </infetch>
+    // Locate the end of the opening tag: first '>' after "<infetch"
+    size_t tag_start = raw_text.find("<infetch");
+    if (tag_start == std::string::npos) {
+        std::cerr << "Warning: Cannot find <infetch> tag in seed file" << std::endl;
+        return false;
+    }
+
+    size_t open_end = raw_text.find('>', tag_start);
+    if (open_end == std::string::npos) {
+        std::cerr << "Warning: Malformed <infetch> opening tag" << std::endl;
+        return false;
+    }
+    open_end++; // Move past '>'
+
+    // Locate the closing tag </infetch>
+    size_t close_start = raw_text.rfind("</infetch>");
+    if (close_start == std::string::npos || close_start < open_end) {
+        std::cerr << "Warning: Cannot find </infetch> closing tag" << std::endl;
+        return false;
+    }
+
+    // Extract and hash the inner content (between tags, exclusive)
+    std::string inner = raw_text.substr(open_end, close_start - open_end);
+    std::vector<uint8_t> inner_data(inner.begin(), inner.end());
+    std::string actual_hash = sha256_hex(inner_data);
 
     // Compare case-insensitively
     std::string expected_lower = expected_hash;

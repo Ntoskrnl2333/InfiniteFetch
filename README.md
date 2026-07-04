@@ -61,12 +61,12 @@ Seed files are XML documents that describe files, their blocks, and download sou
 ### Root Element
 
 ```xml
-<infetch hash="SHA256_of_seed_file">
+<infetch hash="SHA256_of_inner_content">
 ```
 
 | Attribute | Description |
 |-----------|-------------|
-| `hash` | SHA256 of the entire seed file (used for integrity verification) |
+| `hash` | SHA256 of the inner text between `<infetch>` and `</infetch>` (tags exclusive). Used for seed integrity verification. |
 
 ### Metadata
 
@@ -174,7 +174,7 @@ main.cpp
 
 1. **Block hash** — Each block's SHA256 is verified against the seed after download
 2. **File hash** — The complete assembled file is read back and verified
-3. **Seed hash** — The seed file itself is hashed and compared to the declared value
+3. **Seed hash** — The inner content between `<infetch>` and `</infetch>` (tags exclusive) is hashed and compared to the declared value
 
 ### Error Handling
 
